@@ -1,7 +1,10 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Tenta obter a chave do ambiente de build ou do ambiente global
+const API_KEY = (typeof process !== 'undefined' && process.env?.API_KEY) || (window as any)._ENV_?.API_KEY || '';
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 // Function declarations for AI to interact with the system
 const createAppointmentDeclaration: FunctionDeclaration = {
@@ -32,6 +35,11 @@ const updateCRMStageDeclaration: FunctionDeclaration = {
 };
 
 export const processIncomingMessage = async (message: string) => {
+  if (!API_KEY) {
+    console.warn("Gemini API Key ausente. Verifique o ambiente.");
+    return [];
+  }
+  
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
@@ -41,7 +49,6 @@ export const processIncomingMessage = async (message: string) => {
       }
     });
     
-    // Return function calls for the backend to execute
     return response.functionCalls || [];
   } catch (error) {
     console.error("AI Automation Error:", error);
@@ -50,22 +57,29 @@ export const processIncomingMessage = async (message: string) => {
 };
 
 export const getAIAnalytics = async (data: any) => {
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Analyze data and return JSON insights: ${JSON.stringify(data)}`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          summary: { type: Type.STRING },
-          opportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
-          bottlenecks: { type: Type.ARRAY, items: { type: Type.STRING } },
-          revenueForecast: { type: Type.STRING }
-        },
-        required: ["summary", "opportunities", "bottlenecks", "revenueForecast"]
+  if (!API_KEY) return { summary: 'Serviço de IA indisponível.' };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Analyze data and return JSON insights: ${JSON.stringify(data)}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: { type: Type.STRING },
+            opportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
+            bottlenecks: { type: Type.ARRAY, items: { type: Type.STRING } },
+            revenueForecast: { type: Type.STRING }
+          },
+          required: ["summary", "opportunities", "bottlenecks", "revenueForecast"]
+        }
       }
-    }
-  });
-  return JSON.parse(response.text || '{}');
+    });
+    return JSON.parse(response.text || '{}');
+  } catch (err) {
+    console.error("Analytics Error:", err);
+    return { summary: 'Erro ao processar analytics.' };
+  }
 };
