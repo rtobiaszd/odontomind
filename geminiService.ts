@@ -1,17 +1,16 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 
-// Tenta obter a chave do ambiente de build ou do ambiente global
-const API_KEY = (typeof process !== 'undefined' && process.env?.API_KEY) || (window as any)._ENV_?.API_KEY || '';
+// O SDK do AI Studio injeta a chave no process.env.API_KEY automaticamente
+const getAIClient = () => {
+  return new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+};
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
-
-// Function declarations for AI to interact with the system
 const createAppointmentDeclaration: FunctionDeclaration = {
   name: 'createAppointment',
   parameters: {
     type: Type.OBJECT,
-    description: 'Creates a dental appointment in the system.',
+    description: 'Cria um agendamento odontológico no sistema.',
     properties: {
       patientName: { type: Type.STRING },
       dateTime: { type: Type.STRING, description: 'ISO format date time' },
@@ -21,48 +20,32 @@ const createAppointmentDeclaration: FunctionDeclaration = {
   },
 };
 
-const updateCRMStageDeclaration: FunctionDeclaration = {
-  name: 'updateCRMStage',
-  parameters: {
-    type: Type.OBJECT,
-    description: 'Moves a patient to a new stage in the pipeline.',
-    properties: {
-      patientId: { type: Type.STRING },
-      newStage: { type: Type.STRING, description: 'Lead, Evaluation, Proposal, etc.' }
-    },
-    required: ['patientId', 'newStage'],
-  },
-};
-
 export const processIncomingMessage = async (message: string) => {
-  if (!API_KEY) {
-    console.warn("Gemini API Key ausente. Verifique o ambiente.");
-    return [];
-  }
-  
+  const ai = getAIClient();
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
-      contents: `You are an expert dental manager. Act on this message: "${message}"`,
+      contents: `Você é um gestor odontológico sênior. O sistema está aguardando ação para: "${message}"`,
       config: {
-        tools: [{ functionDeclarations: [createAppointmentDeclaration, updateCRMStageDeclaration] }],
+        tools: [{ functionDeclarations: [createAppointmentDeclaration] }],
       }
     });
-    
     return response.functionCalls || [];
-  } catch (error) {
-    console.error("AI Automation Error:", error);
+  } catch (error: any) {
+    if (error.message?.includes("Requested entity was not found")) {
+      await window.aistudio.openSelectKey();
+    }
+    console.error("Gemini Execution Error:", error);
     return [];
   }
 };
 
 export const getAIAnalytics = async (data: any) => {
-  if (!API_KEY) return { summary: 'Serviço de IA indisponível.' };
-
+  const ai = getAIClient();
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Analyze data and return JSON insights: ${JSON.stringify(data)}`,
+      contents: `Analise estes dados clínicos/financeiros e retorne insights estratégicos em JSON: ${JSON.stringify(data)}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -70,16 +53,14 @@ export const getAIAnalytics = async (data: any) => {
           properties: {
             summary: { type: Type.STRING },
             opportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
-            bottlenecks: { type: Type.ARRAY, items: { type: Type.STRING } },
             revenueForecast: { type: Type.STRING }
           },
-          required: ["summary", "opportunities", "bottlenecks", "revenueForecast"]
+          required: ["summary", "opportunities", "revenueForecast"]
         }
       }
     });
     return JSON.parse(response.text || '{}');
   } catch (err) {
-    console.error("Analytics Error:", err);
-    return { summary: 'Erro ao processar analytics.' };
+    return { summary: 'Analise estratégica indisponível no momento.' };
   }
 };
